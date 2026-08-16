@@ -35,6 +35,43 @@ install that *looked* like a permissions problem.
 
 ---
 
+## Download (no Python needed)
+
+Grab **`NFSHeatModInjector.exe`** from the [latest release](https://github.com/zetxxs/nfs-heat-mod-injector/releases/latest)
+and double-click it. It finds your game, your Frosty install and your cache by itself.
+
+<img alt="GUI" src="docs/gui.png" width="640">
+
+### Windows will warn you. Here's why, honestly.
+
+The exe is **not code-signed** (a certificate costs a few hundred euros a year), so:
+
+- **SmartScreen** shows *"Windows protected your PC"*. Click **More info → Run anyway**.
+- **Windows Defender may flag it.** This is not a false positive in the "AV is being
+  silly" sense — the tool genuinely terminates processes (`EADesktop`, `Steam`), takes
+  ownership of files with `takeown`/`icacls`, and rewrites game data. That is the exact
+  behaviour profile of things Defender is built to catch. It just happens to be doing it
+  for you, on your own game, at your request.
+- It requests **administrator** on launch. It needs it to release the file locks EA App
+  holds.
+
+If you would rather not trust a stranger's binary — a reasonable position — **run it from
+source instead**. It is one file of plain Python with no dependencies, and you can read
+every line of it:
+
+```bash
+python nfs_heat_gui.py      # same GUI
+python nfs_heat_injector.py # console version
+```
+
+Verify the download if you want:
+
+```powershell
+Get-FileHash NFSHeatModInjector.exe -Algorithm SHA256
+```
+
+The expected hash is published in the release notes.
+
 ## Quick start
 
 Requires Windows 10/11, Python 3.8+, and Administrator (it self-elevates via UAC).

@@ -484,11 +484,23 @@ def preparar_consola() -> None:
 
 _ARCHIVO_LOG: Optional[str] = None
 
+# Ganchos para incrustar el motor en otra interfaz (la GUI de nfs_heat_gui.py).
+# Si estan a None el comportamiento es el de siempre: consola y input().
+#   _SUMIDERO_LOG(nivel, texto) -> recibe cada linea de log ya sin color
+#   _HOOK_CONFIRMAR(pregunta)   -> devuelve True/False en lugar de preguntar por consola
+_SUMIDERO_LOG = None
+_HOOK_CONFIRMAR = None
+
 
 def log(mensaje: str, color: str = "", prefijo: str = "") -> None:
     """Imprime en consola con color y persiste una copia sin color en el log."""
     marca = datetime.now().strftime("%H:%M:%S")
     texto = f"{prefijo}{mensaje}" if prefijo else mensaje
+    if _SUMIDERO_LOG is not None:
+        try:
+            _SUMIDERO_LOG(prefijo.strip("[] ").lower(), f"[{marca}] {texto}")
+        except Exception:
+            pass
     print(f"{C.GRIS}[{marca}]{C.RESET} {color}{texto}{C.RESET}")
     if _ARCHIVO_LOG:
         try:
@@ -515,6 +527,8 @@ def confirmar(pregunta: str) -> bool:
     Pregunta si/no. Respeta ASUMIR_SI (--si) y tolera stdin cerrado (EOF),
     caso habitual al invocar el script desde otro proceso o una tarea programada.
     """
+    if _HOOK_CONFIRMAR is not None:
+        return bool(_HOOK_CONFIRMAR(pregunta))
     if ASUMIR_SI:
         info(f"{pregunta} -> SI (asumido por --si)")
         return True

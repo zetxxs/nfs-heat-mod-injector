@@ -5,6 +5,11 @@ __pycache__/
 .venv/
 venv/
 
+# PyInstaller: el exe se distribuye como asset de Release, no en el repo
+build/
+dist/
+*.spec
+
 # graphify: publicamos los artefactos (graph.html, GRAPH_REPORT.md, graph.json)
 # pero no los sidecars internos, que llevan rutas absolutas de la maquina local.
 graphify-out/.graphify_*
