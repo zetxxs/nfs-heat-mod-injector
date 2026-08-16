@@ -1,5 +1,7 @@
 # NFS Heat Mod Injector
 
+**English** · [**Español → LEEME.md**](LEEME.md)
+
 Make Frosty mods actually load in **Need for Speed Heat** on Steam + EA App.
 
 Frosty Mod Manager compiles your mods into `ModData\Default`, but on many Steam
