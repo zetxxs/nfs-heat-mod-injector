@@ -38,7 +38,6 @@ Necesitas las cuatro cosas:
 
 Solo desde la fuente oficial:
 
-- **Sitio oficial:** <https://frostytoolsuite.com>
 - **Repositorio oficial:** <https://github.com/CadeEvs/FrostyToolsuite> (autor: CadeEvs)
 
 > ⚠️ **Cuidado con las webs falsas.** Buscar "frosty mod manager download" devuelve sobre
