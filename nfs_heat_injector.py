@@ -43,6 +43,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -664,6 +665,245 @@ def diagnosticar_bloqueo(ruta: str) -> List[str]:
 
 
 # ==============================================================================
+# SECCION 5.5 - AUTODETECCION DE RUTAS Y ESTADO DE LA CACHE DE FROSTY
+# ==============================================================================
+#
+# El objetivo es que el script funcione recien clonado, sin editar constantes.
+# Y sobre todo: detectar que la cache de Frosty quedo OBSOLETA respecto a los
+# datos del juego. Esa es la causa mas dificil de diagnosticar de todas, porque
+# el sintoma es un crash que parece culpa del mod.
+
+CARPETAS_FROSTY = ["FrostyModManager", "Frosty Mod Manager", "Frosty"]
+
+
+def _valor_registro(hive_nombre: str, clave: str, valor: str) -> Optional[str]:
+    """Lee un valor del registro devolviendo None en vez de lanzar."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    hives = {"HKCU": winreg.HKEY_CURRENT_USER, "HKLM": winreg.HKEY_LOCAL_MACHINE}
+    try:
+        with winreg.OpenKey(hives[hive_nombre], clave) as k:
+            dato = winreg.QueryValueEx(k, valor)[0]
+        return str(dato) if dato else None
+    except (OSError, KeyError):
+        return None
+
+
+def _juego_por_registro_desinstalacion() -> Optional[str]:
+    """
+    Busca el juego en las claves de desinstalacion de Windows.
+    Es la via mas fiable porque cubre tanto la version de Steam como la de EA App.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return None
+    ramas = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+    for hive, rama in ramas:
+        try:
+            with winreg.OpenKey(hive, rama) as raiz:
+                for i in range(winreg.QueryInfoKey(raiz)[0]):
+                    try:
+                        sub = winreg.EnumKey(raiz, i)
+                        with winreg.OpenKey(raiz, sub) as k:
+                            nombre = str(winreg.QueryValueEx(k, "DisplayName")[0])
+                            if "need for speed" not in nombre.lower() or "heat" not in nombre.lower():
+                                continue
+                            ruta = str(winreg.QueryValueEx(k, "InstallLocation")[0])
+                            if ruta and os.path.isdir(ruta):
+                                return os.path.normpath(ruta)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return None
+
+
+def _bibliotecas_steam() -> List[str]:
+    """Devuelve las rutas de todas las bibliotecas de Steam segun libraryfolders.vdf."""
+    base = (_valor_registro("HKCU", r"Software\Valve\Steam", "SteamPath")
+            or _valor_registro("HKLM", r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"))
+    if not base:
+        return []
+    base = os.path.normpath(base.replace("/", "\\"))
+    vdf = os.path.join(base, "steamapps", "libraryfolders.vdf")
+    rutas = [base]
+    try:
+        with open(vdf, "r", encoding="utf-8", errors="replace") as fh:
+            contenido = fh.read()
+        # Las rutas vienen escapadas al estilo C: "E:\\SteamLibrary"
+        for encontrada in re.findall(r'"path"\s+"([^"]+)"', contenido):
+            rutas.append(os.path.normpath(encontrada.replace("\\\\", "\\")))
+    except OSError:
+        pass
+    # Deduplicado insensible a mayusculas: el registro devuelve 'd:/steam' y el
+    # vdf 'D:\Steam', que en Windows son la misma carpeta.
+    unicas: Dict[str, str] = {}
+    for r in rutas:
+        if os.path.isdir(r):
+            unicas.setdefault(os.path.normcase(r), r)
+    return list(unicas.values())
+
+
+def _juego_por_steam() -> Optional[str]:
+    """Localiza el juego recorriendo las bibliotecas de Steam y su appmanifest."""
+    for biblioteca in _bibliotecas_steam():
+        manifiesto = os.path.join(biblioteca, "steamapps", f"appmanifest_{STEAM_APPID}.acf")
+        if not os.path.isfile(manifiesto):
+            continue
+        try:
+            with open(manifiesto, "r", encoding="utf-8", errors="replace") as fh:
+                contenido = fh.read()
+        except OSError:
+            continue
+        m = re.search(r'"installdir"\s+"([^"]+)"', contenido)
+        if not m:
+            continue
+        ruta = os.path.join(biblioteca, "steamapps", "common", m.group(1))
+        if os.path.isdir(ruta):
+            return os.path.normpath(ruta)
+    return None
+
+
+def _unidades_fijas() -> List[str]:
+    """Letras de unidad existentes, para los escaneos de ultimo recurso."""
+    return [f"{c}:\\" for c in "CDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.isdir(f"{c}:\\")]
+
+
+def localizar_juego(preferida: Optional[str] = None) -> Optional[str]:
+    """
+    Encuentra la carpeta del juego. Orden: ruta indicada -> registro de
+    desinstalacion -> bibliotecas de Steam -> escaneo de unidades.
+    """
+    if preferida and os.path.isdir(preferida):
+        return os.path.normpath(preferida)
+    for buscador in (_juego_por_registro_desinstalacion, _juego_por_steam):
+        ruta = buscador()
+        if ruta and os.path.isfile(os.path.join(ruta, EJECUTABLE_JUEGO)):
+            return ruta
+        if ruta:
+            return ruta
+    for unidad in _unidades_fijas():
+        candidata = os.path.join(unidad, "SteamLibrary", "steamapps", "common", "Need for Speed Heat")
+        if os.path.isdir(candidata):
+            return candidata
+    return None
+
+
+def localizar_frosty(raiz_juego: Optional[str] = None) -> Optional[str]:
+    """
+    Encuentra la carpeta de Frosty Mod Manager. No se registra en el registro,
+    asi que se busca por nombre en los sitios habituales: la unidad del juego
+    primero (la gente suele instalarlo junto a los juegos), luego el resto.
+    """
+    candidatas: List[str] = []
+    if raiz_juego:
+        unidad_juego = os.path.splitdrive(raiz_juego)[0] + "\\"
+        candidatas += [os.path.join(unidad_juego, n) for n in CARPETAS_FROSTY]
+    for unidad in _unidades_fijas():
+        candidatas += [os.path.join(unidad, n) for n in CARPETAS_FROSTY]
+    for base in (os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", ""),
+                 os.environ.get("LOCALAPPDATA", ""), os.path.expanduser("~\\Desktop")):
+        if base:
+            candidatas += [os.path.join(base, n) for n in CARPETAS_FROSTY]
+
+    for c in dict.fromkeys(candidatas):
+        if os.path.isfile(os.path.join(c, "FrostyModManager.exe")):
+            return os.path.normpath(c)
+
+    # Ultimo recurso: un nivel de profundidad en cada unidad
+    for unidad in _unidades_fijas():
+        try:
+            for entrada in os.scandir(unidad):
+                if not entrada.is_dir(follow_symlinks=False):
+                    continue
+                if "frosty" not in entrada.name.lower():
+                    continue
+                if os.path.isfile(os.path.join(entrada.path, "FrostyModManager.exe")):
+                    return os.path.normpath(entrada.path)
+        except OSError:
+            continue
+    return None
+
+
+def ruta_cache_frosty(dir_frosty: str) -> Optional[str]:
+    """Devuelve la ruta del archivo de cache de NFS Heat, exista o no."""
+    if not dir_frosty:
+        return None
+    return os.path.join(dir_frosty, "Caches", "NFSHEAT.cache")
+
+
+def fecha_datos_juego(raiz_juego: str) -> float:
+    """
+    Marca de tiempo del archivo mas reciente en Data\\ y Patch\\, sin seguir
+    enlaces. Representa "cuando cambiaron por ultima vez los datos del juego".
+    """
+    ultima = 0.0
+    for sub in ("Data", "Patch"):
+        base = os.path.join(raiz_juego, sub)
+        if not os.path.isdir(base):
+            continue
+        for actual, dirs, archivos in os.walk(base):
+            dirs[:] = [d for d in dirs if not es_reparse_point(os.path.join(actual, d))]
+            for nombre in archivos:
+                try:
+                    ultima = max(ultima, os.path.getmtime(os.path.join(actual, nombre)))
+                except OSError:
+                    continue
+    return ultima
+
+
+def estado_cache_frosty(dir_frosty: Optional[str], raiz_juego: str) -> Dict:
+    """
+    Decide si la cache de Frosty esta obsoleta comparandola con los datos del
+    juego. Si el juego se actualizo o se reparo despues de que Frosty indexara,
+    los mods compilados referenciaran assets que ya no encajan.
+    """
+    resultado: Dict = {"frosty": dir_frosty, "ruta": None, "existe": False,
+                       "fecha_cache": None, "fecha_datos": None, "obsoleta": False}
+    ruta = ruta_cache_frosty(dir_frosty) if dir_frosty else None
+    resultado["ruta"] = ruta
+    if not ruta or not os.path.isfile(ruta):
+        return resultado
+    resultado["existe"] = True
+    try:
+        resultado["fecha_cache"] = os.path.getmtime(ruta)
+    except OSError:
+        return resultado
+    resultado["fecha_datos"] = fecha_datos_juego(raiz_juego)
+    # Margen de 60s para no marcar obsoleta por diferencias de reloj o de FS.
+    resultado["obsoleta"] = resultado["fecha_datos"] > resultado["fecha_cache"] + 60
+    return resultado
+
+
+def invalidar_cache_frosty(dir_frosty: str) -> Optional[str]:
+    """
+    Renombra la cache en vez de borrarla, para que la operacion sea reversible.
+    Devuelve la ruta del respaldo, o None si no habia cache.
+    """
+    ruta = ruta_cache_frosty(dir_frosty)
+    if not ruta or not os.path.isfile(ruta):
+        aviso("No hay cache de Frosty que invalidar.")
+        return None
+    marca = datetime.now().strftime("%Y%m%d_%H%M%S")
+    destino = f"{ruta}.bak_{marca}"
+    try:
+        quitar_solo_lectura(ruta)
+        os.replace(ruta, destino)
+    except OSError as exc:
+        error(f"No se pudo renombrar la cache: {exc}")
+        return None
+    ok(f"Cache renombrada -> {os.path.basename(destino)}")
+    info("Al abrir Frosty reconstruira el indice. Tarda varios minutos.")
+    return destino
+
+
+# ==============================================================================
 # SECCION 6 - LIBERADOR: cierre de procesos, servicios y toma de propiedad
 # ==============================================================================
 
@@ -1101,6 +1341,26 @@ class MotorInyeccion:
         self.dir_backup = os.path.join(self.raiz_moddata, "_VanillaBackup")
         self.manifiesto = Manifiesto(os.path.join(self.dir_estado, "manifiesto.json"))
         self.liberador = Liberador(self.raiz_juego)
+        self.dir_frosty = localizar_frosty(self.raiz_juego)
+
+    def revisar_cache_frosty(self) -> Dict:
+        """
+        Comprueba si la cache de Frosty quedo obsoleta y avisa. Un indice
+        construido antes de la ultima actualizacion o reparacion del juego
+        produce mods que crashean con un desreferenciado nulo.
+        """
+        est = estado_cache_frosty(self.dir_frosty, self.raiz_juego)
+        if not est["existe"]:
+            return est
+        if est["obsoleta"]:
+            f_cache = datetime.fromtimestamp(est["fecha_cache"]).strftime("%d-%m-%Y %H:%M")
+            f_datos = datetime.fromtimestamp(est["fecha_datos"]).strftime("%d-%m-%Y %H:%M")
+            aviso("La cache de Frosty es ANTERIOR a los datos del juego:")
+            aviso(f"   cache indexada : {f_cache}")
+            aviso(f"   datos del juego: {f_datos}")
+            aviso("Los mods compilados con este indice pueden crashear el juego.")
+            aviso("Invalidala con la opcion [9] del menu o --invalidar-cache.")
+        return est
 
     # -- Validaciones ----------------------------------------------------------
     def validar_entorno(self) -> bool:
@@ -1125,6 +1385,10 @@ class MotorInyeccion:
 
         if not self.validar_entorno():
             return False
+
+        # Aviso temprano: una cache obsoleta produce mods que crashean, y el
+        # sintoma parece culpa del mod. Mejor decirlo antes de tocar archivos.
+        self.revisar_cache_frosty()
 
         if self.manifiesto.inyectado and not forzar:
             aviso("El manifiesto indica que los mods YA estan inyectados.")
@@ -1507,6 +1771,27 @@ class MotorInyeccion:
               f"{C.VERDE + 'SI' if es_administrador() else C.ROJO + 'NO'}{C.RESET}")
         print(f"   Modo inyeccion  : {MODO_INYECCION}")
 
+        # Frosty y su cache
+        print(f"\n   {C.NEGRITA}Frosty Mod Manager:{C.RESET}")
+        if not self.dir_frosty:
+            print(f"      {C.AMBAR}no localizado{C.RESET} "
+                  f"(se busco en las unidades y en Archivos de programa)")
+        else:
+            print(f"      Carpeta : {self.dir_frosty}")
+            est = estado_cache_frosty(self.dir_frosty, self.raiz_juego)
+            if not est["existe"]:
+                print(f"      Cache   : {C.GRIS}no existe — Frosty la creara al abrirse{C.RESET}")
+            else:
+                f_cache = datetime.fromtimestamp(est["fecha_cache"]).strftime("%d-%m-%Y %H:%M")
+                f_datos = datetime.fromtimestamp(est["fecha_datos"]).strftime("%d-%m-%Y %H:%M")
+                print(f"      Indexada: {f_cache}")
+                print(f"      Datos   : {f_datos}")
+                if est["obsoleta"]:
+                    print(f"      Estado  : {C.ROJO}{C.NEGRITA}OBSOLETA{C.RESET} "
+                          f"{C.ROJO}— reindexa antes de compilar (opcion [9]){C.RESET}")
+                else:
+                    print(f"      Estado  : {C.VERDE}al dia{C.RESET}")
+
         # Procesos conflictivos
         print(f"\n   {C.NEGRITA}Procesos conflictivos activos:{C.RESET}")
         objetivos = {p.lower() for p in PROCESOS_A_CERRAR}
@@ -1672,6 +1957,7 @@ def mostrar_menu(motor: MotorInyeccion) -> None:
     print(f"     {C.NEGRITA}[6]{C.RESET} Anadir exclusion de Windows Defender")
     print(f"     {C.NEGRITA}[7]{C.RESET} Solo liberar archivos (matar procesos y permisos)")
     print(f"     {C.NEGRITA}[8]{C.RESET} Inyectar sin lanzar el juego")
+    print(f"     {C.NEGRITA}[9]{C.RESET} Invalidar la cache de Frosty (forzar reindexado)")
     print()
 
 
@@ -1692,6 +1978,80 @@ def accion_inyectar_y_lanzar(motor: MotorInyeccion, lanzar: bool = True) -> None
             motor.restaurar()
 
 
+def accion_invalidar_cache(motor: MotorInyeccion) -> bool:
+    """
+    Renombra la cache de Frosty para forzar un reindexado contra la instalacion
+    actual. Es el remedio cuando el juego se actualizo o se reparo despues de
+    que Frosty construyera su indice.
+    """
+    titulo("INVALIDAR LA CACHE DE FROSTY")
+    if not motor.dir_frosty:
+        error("No se encontro la carpeta de Frosty Mod Manager.")
+        info("Pasa la ruta con --frosty, o renombra a mano <Frosty>\\Caches\\NFSHEAT.cache")
+        return False
+
+    est = estado_cache_frosty(motor.dir_frosty, motor.raiz_juego)
+    print(f"   Frosty : {motor.dir_frosty}")
+    if not est["existe"]:
+        ok("No hay cache: Frosty la construira la proxima vez que se abra.")
+        return True
+    f_cache = datetime.fromtimestamp(est["fecha_cache"]).strftime("%d-%m-%Y %H:%M")
+    f_datos = datetime.fromtimestamp(est["fecha_datos"]).strftime("%d-%m-%Y %H:%M")
+    print(f"   Cache indexada : {f_cache}")
+    print(f"   Datos del juego: {f_datos}")
+    print(f"   Estado         : "
+          f"{C.ROJO + 'OBSOLETA' if est['obsoleta'] else C.VERDE + 'al dia'}{C.RESET}\n")
+
+    if not est["obsoleta"]:
+        aviso("La cache parece al dia. Invalidarla solo cuesta un reindexado.")
+    if not confirmar("Renombrar la cache para forzar el reindexado?"):
+        info("Operacion cancelada.")
+        return False
+
+    if invalidar_cache_frosty(motor.dir_frosty) is None:
+        return False
+
+    # ModData debe irse tambien: si sobrevive, Frosty lo reutiliza y se salta
+    # la recompilacion, dejando el build viejo hecho con la cache defectuosa.
+    if os.path.isdir(motor.raiz_perfil):
+        print()
+        aviso(f"Existe {os.path.relpath(motor.raiz_perfil, motor.raiz_juego)}.")
+        aviso("Si no se borra, Frosty lo reutilizara y no recompilara.")
+        if confirmar("Borrarlo tambien? (borrado seguro, no sigue enlaces)"):
+            try:
+                borrar_arbol_moddata(motor.raiz_perfil)
+                ok("Perfil de ModData borrado. Frosty compilara de cero.")
+            except OSError as exc:
+                error(f"No se pudo borrar el perfil: {exc}")
+                return False
+
+    print()
+    info("Ahora abre Frosty (reconstruira el indice), aplica tus mods y pulsa Launch.")
+    info("Cierra el juego cuando abra, y vuelve aqui para inyectar.")
+    return True
+
+
+def borrar_arbol_moddata(raiz: str) -> None:
+    """
+    Borrado recursivo que trata cada reparse point como una hoja.
+
+    ModData contiene un enlace 'Data' que apunta a la carpeta real del juego:
+    un rmtree normal lo seguiria y vaciaria la instalacion. Aqui nunca se
+    desciende en un enlace, solo se elimina el enlace en si.
+    """
+    if es_reparse_point(raiz):
+        borrar_seguro(raiz)
+        return
+    for entrada in os.scandir(raiz):
+        if es_reparse_point(entrada.path):
+            borrar_seguro(entrada.path)
+        elif entrada.is_dir(follow_symlinks=False):
+            borrar_arbol_moddata(entrada.path)
+        else:
+            borrar_seguro(entrada.path)
+    os.rmdir(ruta_larga(raiz))
+
+
 def bucle_principal(motor: MotorInyeccion) -> None:
     acciones = {
         "1": lambda: accion_inyectar_y_lanzar(motor, lanzar=True),
@@ -1703,6 +2063,7 @@ def bucle_principal(motor: MotorInyeccion) -> None:
                       motor.liberador.detener_servicios(),
                       motor.liberador.tomar_propiedad_recursiva(motor.raiz_juego)),
         "8": lambda: accion_inyectar_y_lanzar(motor, lanzar=False),
+        "9": lambda: accion_invalidar_cache(motor),
     }
     while True:
         try:
@@ -1745,7 +2106,12 @@ def main() -> int:
         description="Inyector de mods Frosty para Need for Speed Heat.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--juego", default=RUTA_JUEGO, help="Ruta raiz del juego.")
+    parser.add_argument("--juego", default=None,
+                        help="Ruta raiz del juego. Si se omite, se autodetecta.")
+    parser.add_argument("--frosty", default=None,
+                        help="Carpeta de Frosty Mod Manager. Si se omite, se autodetecta.")
+    parser.add_argument("--invalidar-cache", dest="invalidar_cache", action="store_true",
+                        help="Renombra la cache de Frosty para forzar el reindexado y sale.")
     parser.add_argument("--perfil", default=PERFIL_FROSTY, help="Perfil de Frosty (ModData\\<perfil>).")
     parser.add_argument("--modo", choices=["copia", "hardlink", "junction"],
                         default=MODO_INYECCION, help="Estrategia de inyeccion.")
@@ -1774,6 +2140,18 @@ def main() -> int:
             reejecutar_elevado()
             return 0
 
+    # --- Localizacion del juego -----------------------------------------------
+    # Se prueba la ruta indicada, luego la constante, y si ninguna sirve se
+    # autodetecta. Asi el script funciona recien clonado y sin editar nada.
+    ruta_juego = localizar_juego(args.juego or RUTA_JUEGO)
+    if not ruta_juego:
+        error("No se encontro Need for Speed Heat.")
+        error("Indica la ruta con --juego \"X:\\...\\Need for Speed Heat\"")
+        return 1
+    if not (args.juego or os.path.isdir(RUTA_JUEGO)):
+        ok(f"Juego autodetectado: {ruta_juego}")
+    args.juego = ruta_juego
+
     # --- Log ------------------------------------------------------------------
     dir_estado = os.path.join(args.juego, "ModData", "_InjectorState")
     try:
@@ -1788,8 +2166,14 @@ def main() -> int:
         aviso(f"Ejecutando SIN elevacion. Log: {_ARCHIVO_LOG or 'deshabilitado'}")
 
     motor = MotorInyeccion(args.juego, args.perfil)
+    if args.frosty:
+        motor.dir_frosty = args.frosty if os.path.isdir(args.frosty) else motor.dir_frosty
+    if motor.dir_frosty and not args.frosty:
+        info(f"Frosty autodetectado: {motor.dir_frosty}")
 
     # --- Modo no interactivo --------------------------------------------------
+    if args.invalidar_cache:
+        return 0 if accion_invalidar_cache(motor) else 1
     if args.diagnostico:
         motor.diagnostico()
         return 0

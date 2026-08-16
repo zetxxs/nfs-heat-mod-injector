@@ -43,11 +43,18 @@ Requires Windows 10/11, Python 3.8+, and Administrator (it self-elevates via UAC
 ```bash
 git clone https://github.com/zetxxs/nfs-heat-mod-injector.git
 cd nfs-heat-mod-injector
-python nfs_heat_injector.py --diagnostico --juego "E:\SteamLibrary\steamapps\common\Need for Speed Heat"
+python nfs_heat_injector.py --diagnostico
 ```
 
-Edit `RUTA_JUEGO` at the top of the script to your install path, or pass `--juego`
-every time.
+**No configuration needed.** It finds your install by itself:
+
+| What | How it's found |
+|---|---|
+| The game | Windows uninstall registry (covers Steam *and* EA App) → Steam's `libraryfolders.vdf` + `appmanifest_1222680.acf` → drive scan |
+| Frosty Mod Manager | `FrostyModManager.exe` on the game's drive, then other drives and Program Files |
+| Frosty's asset cache | `<Frosty>\Caches\NFSHEAT.cache` |
+
+Override either with `--juego "X:\...\Need for Speed Heat"` or `--frosty "X:\FrostyModManager"`.
 
 ### The procedure that works
 
@@ -81,6 +88,7 @@ python nfs_heat_injector.py
 --- Tools ---
 [4] Full diagnostic     [5] Repair missing vanilla files
 [6] Add Defender exclusion   [7] Release files only   [8] Inject without launching
+[9] Invalidate Frosty cache (force reindex)
 ```
 
 | Flag | What it does |
@@ -90,7 +98,9 @@ python nfs_heat_injector.py
 | `--lanzar` | Inject if needed, then launch via Steam |
 | `--restaurar` | Roll back to vanilla from the manifest |
 | `--reparar` | Restore vanilla files a broken tool left orphaned |
-| `--juego <ruta>` | Game root path |
+| `--invalidar-cache` | Rename Frosty's cache to force a reindex, and offer to delete `ModData` |
+| `--juego <ruta>` | Game root path (autodetected if omitted) |
+| `--frosty <ruta>` | Frosty folder (autodetected if omitted) |
 | `--perfil <nombre>` | Frosty profile (default `Default`) |
 | `--modo` | `copia` (default) · `hardlink` · `junction` |
 | `--si` | Answer yes to all prompts (unattended) |
@@ -139,6 +149,36 @@ python tools/leer_minidump.py "C:\Users\<you>\Documents\Need for Speed Heat\Cras
 An `ACCESS_VIOLATION` reading a tiny address like `0x00000000000000A7` is a null
 dereference: the engine asked for an asset the mod replaced and got nothing back.
 Usually **a stale Frosty cache**, not a broken mod — see below.
+
+### Stale Frosty cache — the one that wastes your evening
+
+Frosty builds an asset index once and reuses it. If the game is **updated, verified or
+repaired afterwards**, that index no longer matches the files on disk, and mods compiled
+from it reference assets the engine cannot resolve. The game crashes, and it looks like
+the mod's fault.
+
+This tool detects it automatically by comparing the cache's timestamp against the newest
+file in `Data\` and `Patch\`:
+
+```
+Frosty Mod Manager:
+   Carpeta : E:\FrostyModManager
+   Indexada: 16-08-2026 02:10
+   Datos   : 16-08-2026 02:56
+   Estado  : OBSOLETA — reindexa antes de compilar (opcion [9])
+```
+
+Fix it with:
+
+```bash
+python nfs_heat_injector.py --invalidar-cache
+```
+
+That renames the cache (reversible — it is never deleted) and offers to remove
+`ModData\Default` too, because Frosty reuses an existing build and would otherwise skip
+recompiling with the fresh index. Then reopen Frosty, let it reindex, apply mods, Launch.
+
+**Run this after every game update.** Steam patches NFS Heat without warning.
 
 ### The mod does nothing / the crash won't go away
 
