@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# graphify: publicamos los artefactos (graph.html, GRAPH_REPORT.md, graph.json)
+# pero no los sidecars internos, que llevan rutas absolutas de la maquina local.
+graphify-out/.graphify_*
+graphify-out/cost.json
+graphify-out/manifest.json
+graphify-out/cache/
+
+# Estado local del inyector (se genera dentro de la carpeta del juego, no aqui,
+# pero por si alguien lo copia)
+_InjectorState/
+_VanillaBackup/
+*.bak
+*.log
