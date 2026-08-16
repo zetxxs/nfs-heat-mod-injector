@@ -1,137 +1,138 @@
 # NFS Heat Mod Injector
 
-**English** · [**Español → LEEME.md**](LEEME.md)
+**Español** · [**English → README.en.md**](README.en.md)
 
-Make Frosty mods actually load in **Need for Speed Heat** on Steam + EA App.
+Haz que los mods de Frosty **se carguen de verdad** en Need for Speed Heat, en Steam + EA App.
 
-Frosty Mod Manager compiles your mods into `ModData\Default`, but on many Steam
-installs its **Launch button starts the game without applying them**. The game boots
-fine, so it looks like it worked — and you spend an evening wondering why your mod
-does nothing. This tool closes that gap: it swaps Frosty's compiled payload into the
-files the game actually reads, with verified backups and a one-command way back.
+Frosty compila tus mods en `ModData\Default`, pero en muchas instalaciones de Steam
+**su botón Launch arranca el juego sin aplicarlos**. El juego abre bien, así que parece
+que funcionó — y te pasas la tarde preguntándote por qué tu mod no hace nada. Esta
+herramienta cierra ese hueco: mete el payload compilado por Frosty en los archivos que
+el juego realmente lee, con respaldos verificados y vuelta atrás en un comando.
 
-> Single-player game modding on your own installation. Nothing here touches
-> anti-cheat, DRM, or online play.
+> Modding de un juego de un jugador, en tu propia instalación. Aquí no se toca
+> anti-cheat, DRM ni juego en línea.
 
 ---
 
-## Why not just copy the files yourself
+## Por qué no vale con copiar los archivos a mano
 
-Because `ModData\Default` is not a folder of files. It is a **mirror built out of
-symlinks**:
+Porque `ModData\Default` **no es una carpeta de archivos**. Es un espejo hecho de
+enlaces simbólicos:
 
-| Entry | What it really is |
+| Entrada | Qué es realmente |
 |---|---|
-| `ModData\Default\Data` | **Symlink** → `<game>\Data` |
-| `ModData\Default\Update` | **Broken symlink** (no `Update` folder exists) |
-| `ModData\Default\patch\win32\*` | 74 of 76 entries are **links** to vanilla content |
-| The actual mod payload | **6 real files**, ~24 MB |
+| `ModData\Default\Data` | **Enlace simbólico** → `<juego>\Data` |
+| `ModData\Default\Update` | Enlace simbólico **roto** (no existe `Update`) |
+| `ModData\Default\patch\win32\*` | 74 de 76 entradas son **enlaces** a contenido vanilla |
+| El payload real del mod | **6 archivos**, ~24 MB |
 
-Copy that tree with `xcopy`, `robocopy`, `shutil.copytree` or `Remove-Item -Recurse`
-and you follow the `Data` symlink straight into your real game folder. A previous
-tool did exactly that on the install this was built for, moved five vanilla files out
-of `Data\Win32`, hit a locked file, and died with no rollback — leaving a broken
-install that *looked* like a permissions problem.
+Copia ese árbol con `xcopy`, `robocopy`, `shutil.copytree` o bórralo con
+`Remove-Item -Recurse` y seguirás el enlace `Data` hasta la carpeta real de tu juego.
+Una herramienta anterior hizo exactamente eso en la instalación para la que se construyó
+esto: se llevó cinco archivos vanilla de `Data\Win32`, chocó con un archivo bloqueado y
+murió sin rollback, dejando una instalación rota que *parecía* un problema de permisos.
 
-**This tool never descends into a reparse point.** That is the whole point.
+**Esta herramienta nunca desciende en un reparse point.** Ese es todo el asunto.
 
 ---
 
-## Download (no Python needed)
+## Descarga (sin necesidad de Python)
 
-Grab **`NFSHeatModInjector.exe`** from the [latest release](https://github.com/zetxxs/nfs-heat-mod-injector/releases/latest)
-and double-click it. It finds your game, your Frosty install and your cache by itself.
+Baja **`NFSHeatModInjector.exe`** de la
+[última release](https://github.com/zetxxs/nfs-heat-mod-injector/releases/latest) y haz
+doble clic. Encuentra tu juego, tu Frosty y tu caché por sí solo.
 
-<img alt="GUI" src="docs/gui.png" width="640">
+<img alt="Interfaz" src="docs/gui.png" width="640">
 
-### Windows will warn you. Here's why, honestly.
+### Windows te va a avisar, y con razón
 
-The exe is **not code-signed** (a certificate costs a few hundred euros a year), so:
+El ejecutable **no está firmado** (un certificado cuesta cientos de euros al año), así
+que:
 
-- **SmartScreen** shows *"Windows protected your PC"*. Click **More info → Run anyway**.
-- **Windows Defender may flag it.** This is not a false positive in the "AV is being
-  silly" sense — the tool genuinely terminates processes (`EADesktop`, `Steam`), takes
-  ownership of files with `takeown`/`icacls`, and rewrites game data. That is the exact
-  behaviour profile of things Defender is built to catch. It just happens to be doing it
-  for you, on your own game, at your request.
-- It requests **administrator** on launch. It needs it to release the file locks EA App
-  holds.
+- **SmartScreen** dirá *"Windows protegió su PC"* → **Más información** → **Ejecutar de
+  todas formas**.
+- **Defender puede marcarlo.** Y no es un falso positivo tonto: la herramienta mata
+  procesos (`EADesktop`, `Steam`), toma propiedad de archivos con `takeown` e `icacls`, y
+  reescribe datos del juego. Ese es exactamente el perfil de comportamiento que un
+  antivirus está hecho para cazar. La diferencia es que actúa sobre tu juego, en tu
+  máquina, porque tú se lo pides.
+- Pide **administrador** al arrancar. Lo necesita para soltar los bloqueos de archivo que
+  mantiene EA App.
 
-If you would rather not trust a stranger's binary — a reasonable position — **run it from
-source instead**. It is one file of plain Python with no dependencies, and you can read
-every line of it:
+Si prefieres no fiarte del binario de un desconocido — postura razonable —,
+**ejecútalo desde el código**. Es Python plano, sin dependencias, y puedes leer cada
+línea:
 
 ```bash
-python nfs_heat_gui.py      # same GUI
-python nfs_heat_injector.py # console version
+python nfs_heat_gui.py       # la misma interfaz
+python nfs_heat_injector.py  # versión de consola
 ```
 
-Verify the download if you want:
+Verifica la descarga si quieres. El hash esperado está en las notas de la release:
 
 ```powershell
 Get-FileHash NFSHeatModInjector.exe -Algorithm SHA256
 ```
 
-The expected hash is published in the release notes.
+---
 
-## Using the app, step by step
+## Cómo usarlo, paso a paso
 
-*(Guía completa en español: **[LEEME.md](LEEME.md)**)*
+Al abrirse rellena el panel de arriba solo. No escribes ninguna ruta.
 
-Open the exe. It fills in the top panel by itself — you don't type any paths.
+### Qué te dice el panel de estado
 
-### What the status panel tells you
-
-| Row | What it means |
+| Fila | Qué significa |
 |---|---|
-| **Juego** | Where your game is. Green = found. Red = press **Cambiar ruta…** and pick the folder |
-| **Frosty** | Where Frosty Mod Manager is. Amber if not found — only matters for the cache check |
-| **Cache** | Whether Frosty's asset index still matches your game. See the three verdicts above |
-| **Estado** | `original (vanilla)` = clean game. `MODS INYECTADOS` = mods are applied right now |
+| **Juego** | Dónde está tu juego. Verde = encontrado. Rojo = pulsa **Cambiar ruta…** y señala la carpeta |
+| **Frosty** | Dónde está Frosty Mod Manager. Ámbar si no lo encuentra; solo afecta al aviso de caché |
+| **Cache** | Si el índice de Frosty sigue coincidiendo con tu juego |
+| **Estado** | `original (vanilla)` = juego limpio. `MODS INYECTADOS` = los mods están puestos |
 
-### What each button does
+### Qué hace cada botón
 
-| Button | What happens |
+| Botón | Qué pasa |
 |---|---|
-| **▶ Inyectar mods y jugar** | Copies Frosty's compiled mod files into the game, then launches through Steam. The one you'll use most |
-| **↺ Restaurar original** | Puts the original files back from the verified backups. Run this before recompiling in Frosty, and before playing online |
-| **Solo inyectar** | Same as the first button but without launching |
-| **Diagnostico** | Prints everything it knows: paths, cache state, mod payload, install integrity. Read-only, safe anytime |
-| **Invalidar cache de Frosty** | Renames Frosty's index so it rebuilds. Only needed when the game actually changed |
-| **Reparar instalacion** | Puts back vanilla files that a broken tool moved out and never returned |
-| **Cambiar ruta…** | Point it at the game folder manually |
+| **▶ Inyectar mods y jugar** | Copia los archivos compilados por Frosty al juego y lo lanza por Steam. El que más vas a usar |
+| **↺ Restaurar original** | Devuelve los archivos originales desde los respaldos verificados. Hazlo antes de recompilar en Frosty y antes de jugar en línea |
+| **Solo inyectar** | Lo mismo que el primero pero sin lanzar |
+| **Diagnostico** | Enseña todo lo que sabe: rutas, caché, payload, integridad. Solo lee, seguro en cualquier momento |
+| **Invalidar cache de Frosty** | Renombra el índice de Frosty para que lo reconstruya. Solo hace falta si el juego cambió de verdad |
+| **Reparar instalacion** | Devuelve archivos vanilla que una herramienta rota se llevó y nunca repuso |
+| **Cambiar ruta…** | Señalar la carpeta del juego a mano |
 
-### The order that works
+### El orden que funciona
 
 ```
-1. Restaurar original          ← leaves a clean base and honest backups
-2. Frosty → apply mods → Launch  ← ONLY to compile. Close the game when it opens.
+1. Restaurar original            ← deja una base limpia y respaldos honestos
+2. Frosty → aplicar mods → Launch  ← SOLO para compilar. Cierra el juego cuando abra.
 3. Inyectar mods y jugar
 ```
 
-**Step 2 is where everyone trips.** Frosty's Launch compiles `ModData` *and* starts the
-game — but that launch does **not** apply your mods. The game opens fine, so it looks
-like it worked. Let it open, close it, then come back and inject.
+**El paso 2 es donde tropieza todo el mundo.** El botón Launch de Frosty compila
+`ModData` **y** arranca el juego — pero ese arranque **no aplica tus mods**. Como el
+juego abre sin errores, parece que funcionó. Déjalo abrir, ciérralo, y vuelve aquí a
+inyectar.
 
-And once mods are injected, **launch from Steam or from this app — never from Frosty
-again.** Frosty reinstalls its proxy exe on launch and can undo the injection.
+Y una vez inyectado, **lanza desde Steam o desde esta herramienta, nunca más desde
+Frosty.** Frosty reinstala su ejecutable proxy al lanzar y puede deshacer la inyección.
 
-### Before you play with reward mods
+### Antes de probar mods de recompensa
 
-Money and REP multiplier mods write to your save, and an overflow can leave your balance
-negative. That damage is in the save file, not in the game files, so restoring won't undo
-it. Copy this first:
+Los mods de dinero y REP escriben en tu partida, y un desbordamiento puede dejarte el
+saldo en negativo. Ese daño está en el archivo de guardado, no en los del juego, así que
+restaurar **no** lo deshace. Copia esto antes:
 
 ```
-Documents\Need for Speed Heat\SaveGame\savegame\1
+Documentos\Need for Speed Heat\SaveGame\savegame\1
 ```
 
-The game keeps a single save and overwrites it on exit.
+El juego guarda un solo archivo y lo sobrescribe al salir.
 
-## Quick start
+---
 
-Requires Windows 10/11, Python 3.8+, and Administrator (it self-elevates via UAC).
-`psutil` is optional — it only adds "which process is holding this file".
+## Desde la consola
 
 ```bash
 git clone https://github.com/zetxxs/nfs-heat-mod-injector.git
@@ -139,121 +140,104 @@ cd nfs-heat-mod-injector
 python nfs_heat_injector.py --diagnostico
 ```
 
-**No configuration needed.** It finds your install by itself:
+**Sin configurar nada.** Encuentra la instalación por sí solo:
 
-| What | How it's found |
+| Qué | Cómo lo encuentra |
 |---|---|
-| The game | Windows uninstall registry (covers Steam *and* EA App) → Steam's `libraryfolders.vdf` + `appmanifest_1222680.acf` → drive scan |
-| Frosty Mod Manager | `FrostyModManager.exe` on the game's drive, then other drives and Program Files |
-| Frosty's asset cache | `<Frosty>\Caches\NFSHEAT.cache` |
+| El juego | Registro de desinstalación de Windows (cubre Steam **y** EA App) → `libraryfolders.vdf` + `appmanifest_1222680.acf` → escaneo de unidades |
+| Frosty Mod Manager | `FrostyModManager.exe` en la unidad del juego, luego el resto y Archivos de programa |
+| La caché de Frosty | `<Frosty>\Caches\NFSHEAT.cache` |
 
-Override either with `--juego "X:\...\Need for Speed Heat"` or `--frosty "X:\FrostyModManager"`.
+Puedes forzar cualquiera con `--juego "X:\...\Need for Speed Heat"` o
+`--frosty "X:\FrostyModManager"`.
 
-### The procedure that works
-
-```
-1. python nfs_heat_injector.py --restaurar    # clean vanilla baseline
-2. Frosty: set your mod list → Launch         # ONLY to compile. Close the game when it opens.
-3. python nfs_heat_injector.py --inyectar
-4. python nfs_heat_injector.py --lanzar       # via Steam — never from Frosty
-```
-
-**Step 2 is the trap.** Frosty's Launch compiles *and* starts the game, but that
-launch does not apply the mods. Let it open, close it, then inject.
-
-**Step 4 matters too.** Launching from Frosty afterwards reinstalls its proxy exe and
-can undo the injection.
-
----
-
-## Usage
-
-Interactive menu (self-elevates):
+### Menú interactivo
 
 ```bash
 python nfs_heat_injector.py
 ```
 
 ```
-[1] Inject mods and launch (Steam protocol)
-[2] Restore original files (vanilla)
-[3] Exit
---- Tools ---
-[4] Full diagnostic     [5] Repair missing vanilla files
-[6] Add Defender exclusion   [7] Release files only   [8] Inject without launching
-[9] Invalidate Frosty cache (force reindex)
+[1] Inyectar Mods y Lanzar Juego (Steam Protocol)
+[2] Restaurar Archivos Originales (Vanilla)
+[3] Salir
+--- Herramientas ---
+[4] Diagnóstico   [5] Reparar instalación   [6] Exclusión de Defender
+[7] Solo liberar  [8] Inyectar sin lanzar   [9] Invalidar caché de Frosty
 ```
 
-| Flag | What it does |
+### Opciones
+
+| Opción | Qué hace |
 |---|---|
-| `--diagnostico` | State report — read-only, safe to run anytime |
-| `--inyectar` | Inject the payload and exit |
-| `--lanzar` | Inject if needed, then launch via Steam |
-| `--restaurar` | Roll back to vanilla from the manifest |
-| `--reparar` | Restore vanilla files a broken tool left orphaned |
-| `--invalidar-cache` | Rename Frosty's cache to force a reindex, and offer to delete `ModData` |
-| `--juego <ruta>` | Game root path (autodetected if omitted) |
-| `--frosty <ruta>` | Frosty folder (autodetected if omitted) |
-| `--perfil <nombre>` | Frosty profile (default `Default`) |
-| `--modo` | `copia` (default) · `hardlink` · `junction` |
-| `--si` | Answer yes to all prompts (unattended) |
-| `--forzar` | Re-inject despite the manifest |
-| `--sin-elevar` | Skip UAC (debugging) |
+| `--diagnostico` | Informe de estado. Solo lectura, seguro en cualquier momento |
+| `--inyectar` | Inyecta el payload y sale |
+| `--lanzar` | Inyecta si hace falta y lanza por Steam |
+| `--restaurar` | Vuelve a vanilla usando el manifiesto |
+| `--reparar` | Restaura archivos vanilla que una herramienta rota dejó huérfanos |
+| `--invalidar-cache` | Renombra la caché de Frosty y ofrece borrar `ModData` |
+| `--juego <ruta>` | Carpeta del juego (autodetectada si se omite) |
+| `--frosty <ruta>` | Carpeta de Frosty (autodetectada si se omite) |
+| `--modo` | `copia` (defecto) · `hardlink` · `junction` |
+| `--si` | Responde SÍ a todo (ejecución desatendida) |
+| `--forzar` | Reinyecta pese al manifiesto |
+| `--sin-elevar` | No pide UAC (depuración) |
 
-Without `--si`, a prompt with closed stdin resolves to **no** — never an implicit yes.
-
----
-
-## Safety guarantees
-
-- **Never descends into a reparse point** (`FILE_ATTRIBUTE_REPARSE_POINT` via
-  `GetFileAttributesW`). The safeguard that prevents the disaster above.
-- **Physical identity detection** (`GetFileInformationByHandle` → volume + MFT index):
-  if source and destination are the same inode, it skips instead of destroying it.
-  This is how it tells Frosty's symlinks apart from real mod files.
-- **Backups by hash-verified copy, never by move.** If the copy fails, your game is
-  untouched. A move that fails halfway is what breaks installs.
-- **Transactional with rollback** — a failure mid-injection reverts what was applied,
-  in reverse order.
-- **Atomic manifest** (`os.replace`) — stops a second injection from overwriting good
-  vanilla backups with already-modded files.
-- **Locale-independent** — processes via `CreateToolhelp32Snapshot` (never parses
-  `tasklist`), permissions via the SID `*S-1-1-0` (not the localized string
-  "Everyone"/"Todos"), services judged by exit code.
-- **Real lock detection** — `CreateFileW` with `dwShareMode = 0`, exponential backoff,
-  and the culprit process named if `psutil` is installed.
-
-Default mode is **`copia`**, not `hardlink`: a hardlink shares an inode with
-`ModData`, so if Frosty recompiles later the game can silently keep stale content.
+Sin `--si`, una confirmación con `stdin` cerrado se interpreta como **NO**, nunca como sí
+implícito.
 
 ---
 
-## Troubleshooting
+## Garantías de diseño
 
-### The game crashes after injecting
+- **Nunca desciende en un reparse point** (`FILE_ATTRIBUTE_REPARSE_POINT` vía
+  `GetFileAttributesW`). La salvaguarda que evita el desastre de arriba.
+- **Detección de identidad física** (`GetFileInformationByHandle` → volumen + índice MFT):
+  si origen y destino son el mismo inodo, lo omite en vez de destruirlo. Así distingue
+  los enlaces de Frosty de los archivos reales del mod.
+- **Respaldo por copia verificada con hash, jamás por movimiento.** Si la copia falla, tu
+  juego queda intacto. Un movimiento que falla a medias es lo que rompe instalaciones.
+- **Transaccional con rollback**: un fallo a mitad de inyección revierte en orden inverso
+  lo ya aplicado.
+- **Manifiesto atómico** (`os.replace`): impide que una segunda inyección pise los
+  respaldos vanilla buenos con archivos ya modificados.
+- **Independiente del idioma**: procesos vía `CreateToolhelp32Snapshot` (nunca parsea
+  `tasklist`), permisos con el SID `*S-1-1-0` (no la cadena traducida "Todos"/"Everyone"),
+  servicios juzgados por código de salida.
+- **Detección real de bloqueo**: `CreateFileW` con `dwShareMode = 0`, espera con backoff
+  exponencial, y nombra al proceso culpable si `psutil` está instalado.
 
-NFS Heat does **not** use Windows Error Reporting, so Event Viewer will be empty.
-Dumps land in `Documents\Need for Speed Heat\CrashDumps\*.mdmp`.
+El modo por defecto es **`copia`**, no `hardlink`: un enlace duro comparte inodo con
+`ModData`, así que si Frosty recompila más tarde el juego puede quedarse con contenido
+obsoleto en silencio.
+
+---
+
+## Si algo va mal
+
+### El juego crashea después de inyectar
+
+NFS Heat **no** usa el sistema de errores de Windows, así que el Visor de eventos sale
+vacío. Los volcados están en `Documentos\Need for Speed Heat\CrashDumps\*.mdmp`.
 
 ```bash
-python tools/leer_minidump.py "C:\Users\<you>\Documents\Need for Speed Heat\CrashDumps\CrashDump_....mdmp"
+python tools/leer_minidump.py "C:\Users\<tú>\Documents\Need for Speed Heat\CrashDumps\CrashDump_....mdmp"
 ```
 
-An `ACCESS_VIOLATION` reading a tiny address like `0x00000000000000A7` is a null
-dereference: the engine asked for an asset the mod replaced and got nothing back.
-Usually **a stale Frosty cache**, not a broken mod — see below.
+Un `ACCESS_VIOLATION` leyendo una dirección diminuta como `0x00000000000000A7` es un
+desreferenciado de puntero nulo: el motor pidió un asset que el mod cambió y no recibió
+nada. Casi siempre es **la caché de Frosty desfasada**, no un mod roto.
 
-### Stale Frosty cache — the one that wastes your evening
+### La caché de Frosty desfasada — la que te arruina la tarde
 
-Frosty builds an asset index once and reuses it. If the game is **updated, verified or
-repaired afterwards**, that index no longer matches the files on disk, and mods compiled
-from it reference assets the engine cannot resolve. The game crashes, and it looks like
-the mod's fault.
+Frosty construye su índice de assets una vez y lo reutiliza. Si el juego se **actualiza,
+verifica o repara después**, ese índice deja de encajar con los archivos en disco, y los
+mods compilados con él referencian assets que el motor no puede resolver. El juego
+crashea, y parece culpa del mod.
 
-This tool detects it by **content**, not by timestamps. It fingerprints the files that
-define the asset index — every `.toc`, `layout.toc`, `initfs_Win32` and `chunkmanifest`
-under `Data\` — and compares that fingerprint against the one recorded the last time
-Frosty reindexed.
+Se detecta por **contenido**, no por fechas. Se calcula una huella de cada `.toc`,
+`layout.toc`, `initfs_Win32` y `chunkmanifest` bajo `Data\`, y se compara con la
+registrada la última vez que Frosty reindexó.
 
 ```
 Frosty Mod Manager:
@@ -263,98 +247,95 @@ Frosty Mod Manager:
    Estado  : al dia (huella de contenido sin cambios)
 ```
 
-**Why not just compare timestamps?** Because Steam re-downloading the *same* build
-rewrites all 31 GB and bumps every `mtime` without changing a single byte. A
-timestamp check calls that stale; it isn't. Verified on exactly that case: after a full
-31.5 GB re-download of build `10351341`, every file hashed identical to before.
+**¿Por qué no comparar fechas?** Porque Steam redescargando la *misma* build reescribe
+los 31 GB y dispara todos los `mtime` sin cambiar un solo byte. Una comprobación por
+fechas lo llamaría obsoleto y no lo es. Verificado en ese caso exacto: tras una
+redescarga completa de 31,5 GB de la build `10351341`, todos los archivos hashearon
+idénticos.
 
-Three verdicts, and the third one matters:
+Tres veredictos, y el tercero importa:
 
-| Verdict | Meaning |
+| Veredicto | Significa |
 |---|---|
-| `al dia` | Fingerprint unchanged — the cache is valid |
-| `OBSOLETA` | Content genuinely changed — reindex before compiling |
-| `sin verificar` | First run, no prior reference to compare against |
+| `al día` | La huella no cambió: la caché vale |
+| `OBSOLETA` | El contenido cambió de verdad: reindexa antes de compilar |
+| `sin verificar` | Primera ejecución, no hay referencia con la que comparar |
 
-`sin verificar` exists on purpose. Flagging red without evidence is worse than admitting
-the tool doesn't know yet. Only `Data\` is fingerprinted, because the injector never
-writes there — including `Patch\` would make the fingerprint change from our own work.
+`sin verificar` existe a propósito. **Marcar rojo sin pruebas es peor que admitir que la
+herramienta todavía no lo sabe.** Solo se mira `Data\`, porque el inyector nunca escribe
+ahí: incluir `Patch\` haría que la huella cambiara por nuestra propia inyección.
 
-Fix it with:
+Para arreglarlo:
 
 ```bash
 python nfs_heat_injector.py --invalidar-cache
 ```
 
-That renames the cache (reversible — it is never deleted) and offers to remove
-`ModData\Default` too, because Frosty reuses an existing build and would otherwise skip
-recompiling with the fresh index. Then reopen Frosty, let it reindex, apply mods, Launch.
+Renombra la caché — reversible, nunca la borra — y ofrece eliminar `ModData\Default`
+también, porque Frosty reutiliza un build existente y si no se saltaría la
+recompilación con el índice nuevo. Luego reabre Frosty, deja que reindexe, aplica mods y
+pulsa Launch.
 
-**Run this after every game update.** Steam patches NFS Heat without warning.
+### El mod no hace nada
 
-### The mod does nothing / the crash won't go away
-
-Frosty's asset index may have been built against an incomplete install. Check first:
-
-```bash
-python tools/verificar_manifiesto.py "E:\SteamLibrary\steamapps\common\Need for Speed Heat"
-```
-
-Missing `loc/` files are normal (language packs you didn't install). Missing anything
-else under `Data/` or `Patch/` means the install is incomplete — fix it with Steam's
-*Verify integrity of game files*, then force Frosty to reindex:
-
-1. Rename `<Frosty>\Caches\NFSHEAT.cache`
-2. Delete `ModData\Default` — **with the tool below, never with Explorer**
-3. Reopen Frosty (it rebuilds the index), apply mods, Launch
+Comprueba primero que Frosty compiló el que crees:
 
 ```bash
-python tools/borrar_moddata.py "E:\SteamLibrary\steamapps\common\Need for Speed Heat"
+type "<juego>\ModData\Default\patch\mods.json"
 ```
 
-> Deleting `ModData\Default` with Explorer or `Remove-Item -Recurse` follows the
-> `Data` symlink into your real game folder. PowerShell 5.1 has this bug. Use the tool.
+Frosty solo mete en `ModData` los mods de su lista de aplicados. Tener uno en la carpeta
+y otro distinto compilado es, con diferencia, la causa más común.
 
-### Frosty won't recompile
+Y recuerda que muchos mods de recompensa son **multiplicadores**: cambian lo que ganas
+por carrera, no tu saldo actual. Hay que correr una carrera para verlo, y las carreras de
+noche pagan REP mientras que las de día pagan dinero.
 
-It reuses `ModData\Default` when it thinks the build is current. Delete it (above) and
-it has nothing to reuse.
+### Falta algún archivo del juego
 
-### `--restaurar` doesn't fully return to vanilla
-
-It restores what it backed up. Files a previous tool modified before this one ran have
-no vanilla copy anywhere — only Steam's *Verify integrity* can recover those, and it
-won't touch files outside its manifest (`mods.json`, Frosty-added `cas_NN.cas`).
-
-### Back up your save
-
-Reward-multiplier mods write to your save and can overflow the balance into negative.
-That damage lives in the save, not in the game files, so restoring won't undo it.
-
-```
-Documents\Need for Speed Heat\SaveGame\savegame\1
+```bash
+python tools/verificar_manifiesto.py
 ```
 
-Copy it before each test. The game keeps a single file and overwrites it on exit.
+Los archivos de idioma que no instalaste salen como ausentes: es normal. Cualquier otra
+ausencia bajo `Data\` o `Patch\` significa instalación incompleta — arréglala con
+*Verificar integridad* en Steam.
+
+> ⚠️ **Nunca borres `ModData\Default` con el Explorador ni `Remove-Item -Recurse`**:
+> dentro hay un enlace `Data` que apunta a la carpeta real de tu juego, y PowerShell 5.1
+> lo sigue. Usa `python tools/borrar_moddata.py`.
+
+### Frosty no recompila
+
+Reutiliza `ModData\Default` cuando cree que el build está al día. Bórralo con la
+herramienta de arriba y no tendrá nada que reutilizar.
+
+### `--restaurar` no me devuelve todo a vanilla
+
+Restaura lo que él respaldó. Los archivos que otra herramienta modificó **antes** de usar
+esta no tienen copia vanilla en ninguna parte: para esos, la única vía es *Verificar
+integridad* de Steam, y ni eso cubre los archivos que Frosty añade y que no están en el
+manifiesto de Steam (`mods.json` y los `cas_NN.cas` generados).
 
 ---
 
-## Repo contents
+## Contenido del repositorio
 
-| Path | What |
+| Ruta | Qué es |
 |---|---|
-| `nfs_heat_injector.py` | The injector — single file, stdlib only |
-| `tools/leer_minidump.py` | Minidump parser: exception code + faulting module |
-| `tools/verificar_manifiesto.py` | Install integrity vs the game's own `mnfst.txt` |
-| `tools/borrar_moddata.py` | Symlink-safe `ModData` deletion |
-| `DIAGNOSTICO.md` | Full investigation log (Spanish) — the three real causes |
+| `nfs_heat_injector.py` | El inyector — un archivo, solo biblioteca estándar |
+| `nfs_heat_gui.py` | La interfaz gráfica en tkinter |
+| `tools/leer_minidump.py` | Parser de minidumps: código de excepción + módulo culpable |
+| `tools/verificar_manifiesto.py` | Integridad de la instalación contra el `mnfst.txt` del juego |
+| `tools/borrar_moddata.py` | Borrado de `ModData` a prueba de symlinks |
+| `DIAGNOSTICO.md` | La investigación completa: las tres causas encadenadas |
 
-## Compatibility
+## Compatibilidad
 
-Built and verified against NFS Heat `1.0.60.7040` (Steam, AppID `1222680`) with EA
-App, Frosty Mod Manager, Windows 11, Python 3.14. The Frostbite structure is
-game-specific; other titles will need the paths adjusted.
+Construido y verificado contra NFS Heat `1.0.60.7040` (Steam, AppID `1222680`) con EA
+App, Frosty Mod Manager, Windows 11 y Python 3.14. La estructura de Frostbite es
+específica de cada juego; otros títulos necesitarían ajustar las rutas.
 
-## License
+## Licencia
 
-MIT — see [LICENSE](LICENSE).
+MIT — ver [LICENSE](LICENSE).
