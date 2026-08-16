@@ -855,7 +855,12 @@ def ruta_cache_frosty(dir_frosty: str) -> Optional[str]:
 def fecha_datos_juego(raiz_juego: str) -> float:
     """
     Marca de tiempo del archivo mas reciente en Data\\ y Patch\\, sin seguir
-    enlaces. Representa "cuando cambiaron por ultima vez los datos del juego".
+    enlaces. Solo informativo: NO sirve para decidir si la cache esta obsoleta.
+
+    Motivo: una redescarga de la MISMA version reescribe todos los archivos y
+    dispara todos los mtime sin que cambie un solo byte de contenido. Usar la
+    fecha como criterio produce falsos positivos. Para el veredicto se usa
+    huella_datos_juego().
     """
     ultima = 0.0
     for sub in ("Data", "Patch"):
@@ -872,27 +877,145 @@ def fecha_datos_juego(raiz_juego: str) -> float:
     return ultima
 
 
-def estado_cache_frosty(dir_frosty: Optional[str], raiz_juego: str) -> Dict:
+# Archivos que definen el indice de assets: los .toc, el layout y el initfs.
+# Se limita a Data\ a proposito, porque el inyector NUNCA toca esa carpeta;
+# incluir Patch\ haria que la huella cambiara por nuestra propia inyeccion.
+EXT_INDICE = (".toc",)
+NOMBRES_INDICE = ("layout.toc", "initfs_win32", "chunkmanifest")
+
+
+def huella_datos_juego(raiz_juego: str) -> Optional[str]:
     """
-    Decide si la cache de Frosty esta obsoleta comparandola con los datos del
-    juego. Si el juego se actualizo o se reparo despues de que Frosty indexara,
-    los mods compilados referenciaran assets que ya no encajan.
+    Huella de CONTENIDO de los archivos que definen el indice de assets.
+
+    Resume ruta + tamano + SHA-256 de cada .toc, layout e initfs bajo Data\\.
+    Son pocos MB, asi que es rapido. A diferencia de las fechas, esto solo
+    cambia si el contenido cambia de verdad: una redescarga identica de Steam
+    produce exactamente la misma huella.
     """
-    resultado: Dict = {"frosty": dir_frosty, "ruta": None, "existe": False,
-                       "fecha_cache": None, "fecha_datos": None, "obsoleta": False}
-    ruta = ruta_cache_frosty(dir_frosty) if dir_frosty else None
-    resultado["ruta"] = ruta
-    if not ruta or not os.path.isfile(ruta):
-        return resultado
-    resultado["existe"] = True
+    base = os.path.join(raiz_juego, "Data")
+    if not os.path.isdir(base):
+        return None
+    piezas: List[str] = []
+    for actual, dirs, archivos in os.walk(base):
+        dirs[:] = sorted(d for d in dirs if not es_reparse_point(os.path.join(actual, d)))
+        for nombre in sorted(archivos):
+            bajo = nombre.lower()
+            if not (bajo.endswith(EXT_INDICE) or bajo in NOMBRES_INDICE):
+                continue
+            completa = os.path.join(actual, nombre)
+            try:
+                rel = os.path.relpath(completa, raiz_juego).replace("\\", "/").lower()
+                piezas.append(f"{rel}|{os.path.getsize(completa)}|{sha256(completa)}")
+            except OSError:
+                continue
+    if not piezas:
+        return None
+    return hashlib.sha256("\n".join(piezas).encode("utf-8")).hexdigest()
+
+
+def buildid_steam(raiz_juego: str) -> Optional[str]:
+    """Lee el buildid del appmanifest de Steam, si el juego viene de Steam."""
+    biblioteca = os.path.dirname(os.path.dirname(raiz_juego))  # ...\steamapps\common\X -> steamapps
+    manifiesto = os.path.join(biblioteca, f"appmanifest_{STEAM_APPID}.acf")
+    if not os.path.isfile(manifiesto):
+        return None
     try:
-        resultado["fecha_cache"] = os.path.getmtime(ruta)
+        with open(manifiesto, "r", encoding="utf-8", errors="replace") as fh:
+            m = re.search(r'"buildid"\s+"(\d+)"', fh.read())
+        return m.group(1) if m else None
     except OSError:
-        return resultado
-    resultado["fecha_datos"] = fecha_datos_juego(raiz_juego)
-    # Margen de 60s para no marcar obsoleta por diferencias de reloj o de FS.
-    resultado["obsoleta"] = resultado["fecha_datos"] > resultado["fecha_cache"] + 60
-    return resultado
+        return None
+
+
+def _ruta_referencia_cache(raiz_juego: str) -> str:
+    return os.path.join(raiz_juego, "ModData", "_InjectorState", "cache_ref.json")
+
+
+def _leer_referencia_cache(raiz_juego: str) -> Dict:
+    try:
+        with open(_ruta_referencia_cache(raiz_juego), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _guardar_referencia_cache(raiz_juego: str, datos: Dict) -> None:
+    ruta = _ruta_referencia_cache(raiz_juego)
+    try:
+        os.makedirs(os.path.dirname(ruta), exist_ok=True)
+        tmp = ruta + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(datos, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp, ruta)
+    except OSError:
+        pass
+
+
+def estado_cache_frosty(dir_frosty: Optional[str], raiz_juego: str,
+                        registrar: bool = True) -> Dict:
+    """
+    Decide si la cache de Frosty sigue valida, comparando el CONTENIDO de los
+    datos del juego contra la huella registrada la ultima vez que Frosty
+    reindexo.
+
+    Veredictos:
+      sin_cache    - Frosty aun no ha indexado nada
+      al_dia       - la huella coincide: el contenido no ha cambiado
+      obsoleta     - la huella cambio: hubo parche o reparacion real
+      desconocido  - primera vez que miramos; no hay con que comparar
+
+    'desconocido' existe a proposito. Marcar rojo sin pruebas es peor que
+    admitir que no se sabe.
+    """
+    res: Dict = {"frosty": dir_frosty, "ruta": None, "existe": False,
+                 "fecha_cache": None, "fecha_datos": None,
+                 "veredicto": "sin_cache", "obsoleta": False,
+                 "buildid": None, "buildid_ref": None}
+
+    ruta = ruta_cache_frosty(dir_frosty) if dir_frosty else None
+    res["ruta"] = ruta
+    if not ruta or not os.path.isfile(ruta):
+        return res
+
+    res["existe"] = True
+    try:
+        res["fecha_cache"] = os.path.getmtime(ruta)
+    except OSError:
+        return res
+    res["fecha_datos"] = fecha_datos_juego(raiz_juego)
+
+    huella = huella_datos_juego(raiz_juego)
+    res["buildid"] = buildid_steam(raiz_juego)
+    ref = _leer_referencia_cache(raiz_juego)
+    res["buildid_ref"] = ref.get("buildid")
+
+    # Frosty reindexo desde la ultima vez -> la cache describe el estado actual.
+    reindexado = ref.get("cache_mtime") != res["fecha_cache"]
+    if reindexado:
+        if registrar and huella:
+            _guardar_referencia_cache(raiz_juego, {
+                "cache_mtime": res["fecha_cache"],
+                "huella": huella,
+                "buildid": res["buildid"],
+                "anotado": datetime.now().isoformat(timespec="seconds"),
+            })
+        # Si nunca habiamos visto esta cache no podemos afirmar nada sobre lo
+        # que Frosty indexo. Lo honesto es decir que no se sabe.
+        res["veredicto"] = "desconocido" if not ref else "al_dia"
+        return res
+
+    if not huella or not ref.get("huella"):
+        res["veredicto"] = "desconocido"
+        return res
+
+    if huella == ref["huella"]:
+        res["veredicto"] = "al_dia"
+    else:
+        res["veredicto"] = "obsoleta"
+        res["obsoleta"] = True
+    return res
 
 
 def invalidar_cache_frosty(dir_frosty: str) -> Optional[str]:
@@ -1364,16 +1487,15 @@ class MotorInyeccion:
         produce mods que crashean con un desreferenciado nulo.
         """
         est = estado_cache_frosty(self.dir_frosty, self.raiz_juego)
-        if not est["existe"]:
-            return est
-        if est["obsoleta"]:
-            f_cache = datetime.fromtimestamp(est["fecha_cache"]).strftime("%d-%m-%Y %H:%M")
-            f_datos = datetime.fromtimestamp(est["fecha_datos"]).strftime("%d-%m-%Y %H:%M")
-            aviso("La cache de Frosty es ANTERIOR a los datos del juego:")
-            aviso(f"   cache indexada : {f_cache}")
-            aviso(f"   datos del juego: {f_datos}")
-            aviso("Los mods compilados con este indice pueden crashear el juego.")
+        if est["veredicto"] == "obsoleta":
+            aviso("El CONTENIDO de los datos del juego cambio desde que Frosty indexo.")
+            if est["buildid"] and est["buildid_ref"] and est["buildid"] != est["buildid_ref"]:
+                aviso(f"   build de Steam: {est['buildid_ref']} -> {est['buildid']}")
+            aviso("Los mods compilados con ese indice pueden crashear el juego.")
             aviso("Invalidala con la opcion [9] del menu o --invalidar-cache.")
+        elif est["veredicto"] == "desconocido":
+            info("No hay referencia previa de la cache de Frosty: no se puede saber")
+            info("si sigue valida. Se anota la huella actual para la proxima vez.")
         return est
 
     # -- Validaciones ----------------------------------------------------------
@@ -1797,14 +1919,20 @@ class MotorInyeccion:
                 print(f"      Cache   : {C.GRIS}no existe — Frosty la creara al abrirse{C.RESET}")
             else:
                 f_cache = datetime.fromtimestamp(est["fecha_cache"]).strftime("%d-%m-%Y %H:%M")
-                f_datos = datetime.fromtimestamp(est["fecha_datos"]).strftime("%d-%m-%Y %H:%M")
                 print(f"      Indexada: {f_cache}")
-                print(f"      Datos   : {f_datos}")
-                if est["obsoleta"]:
+                if est["buildid"]:
+                    print(f"      Build   : {est['buildid']}"
+                          + (f" (referencia: {est['buildid_ref']})"
+                             if est["buildid_ref"] and est["buildid_ref"] != est["buildid"] else ""))
+                if est["veredicto"] == "obsoleta":
                     print(f"      Estado  : {C.ROJO}{C.NEGRITA}OBSOLETA{C.RESET} "
-                          f"{C.ROJO}— reindexa antes de compilar (opcion [9]){C.RESET}")
+                          f"{C.ROJO}— el contenido del juego cambio; reindexa (opcion [9]){C.RESET}")
+                elif est["veredicto"] == "al_dia":
+                    print(f"      Estado  : {C.VERDE}al dia{C.RESET} "
+                          f"{C.GRIS}(huella de contenido sin cambios){C.RESET}")
                 else:
-                    print(f"      Estado  : {C.VERDE}al dia{C.RESET}")
+                    print(f"      Estado  : {C.AMBAR}sin verificar{C.RESET} "
+                          f"{C.GRIS}— primera referencia anotada; se comprobara a partir de ahora{C.RESET}")
 
         # Procesos conflictivos
         print(f"\n   {C.NEGRITA}Procesos conflictivos activos:{C.RESET}")
@@ -2010,14 +2138,19 @@ def accion_invalidar_cache(motor: MotorInyeccion) -> bool:
         ok("No hay cache: Frosty la construira la proxima vez que se abra.")
         return True
     f_cache = datetime.fromtimestamp(est["fecha_cache"]).strftime("%d-%m-%Y %H:%M")
-    f_datos = datetime.fromtimestamp(est["fecha_datos"]).strftime("%d-%m-%Y %H:%M")
+    etiquetas = {"obsoleta": C.ROJO + "OBSOLETA", "al_dia": C.VERDE + "al dia",
+                 "desconocido": C.AMBAR + "sin verificar"}
     print(f"   Cache indexada : {f_cache}")
-    print(f"   Datos del juego: {f_datos}")
-    print(f"   Estado         : "
-          f"{C.ROJO + 'OBSOLETA' if est['obsoleta'] else C.VERDE + 'al dia'}{C.RESET}\n")
+    if est["buildid"]:
+        print(f"   Build de Steam : {est['buildid']}")
+    print(f"   Estado         : {etiquetas.get(est['veredicto'], '?')}{C.RESET}\n")
 
-    if not est["obsoleta"]:
-        aviso("La cache parece al dia. Invalidarla solo cuesta un reindexado.")
+    if est["veredicto"] == "al_dia":
+        aviso("El contenido del juego no ha cambiado desde el ultimo indexado.")
+        aviso("Reindexar no deberia hacer falta; solo cuesta unos minutos si insistes.")
+    elif est["veredicto"] == "desconocido":
+        aviso("No hay referencia previa, asi que no se puede afirmar que este obsoleta.")
+        aviso("Si vienes de un parche o de una verificacion de integridad, reindexa.")
     if not confirmar("Renombrar la cache para forzar el reindexado?"):
         info("Operacion cancelada.")
         return False

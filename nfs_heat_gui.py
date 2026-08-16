@@ -379,13 +379,19 @@ class Aplicacion(tk.Tk):
             self.f_frosty.poner("no encontrado", AMBAR)
 
         c = d["cache"]
+        build = f", build {c['buildid']}" if c.get("buildid") else ""
         if not c.get("existe"):
             self.f_cache.poner("sin construir — Frosty la creara al abrirse", TENUE)
-        elif c.get("obsoleta"):
+        elif c.get("veredicto") == "obsoleta":
             self.f_cache.poner(
-                f"OBSOLETA — indexada {c['f_cache']}, datos del juego {c['f_datos']}", ROJO)
+                f"OBSOLETA — el contenido del juego cambio desde el indexado{build}", ROJO)
+        elif c.get("veredicto") == "al_dia":
+            self.f_cache.poner(
+                f"al dia — contenido sin cambios (indexada {c['f_cache']}{build})", VERDE)
         else:
-            self.f_cache.poner(f"al dia (indexada {c['f_cache']})", VERDE)
+            self.f_cache.poner(
+                f"sin verificar — primera referencia anotada (indexada {c['f_cache']}{build})",
+                AMBAR)
 
         if d["estado"] == "inyectado":
             self.f_estado.poner("MODS INYECTADOS", AMBAR)
@@ -398,11 +404,11 @@ class Aplicacion(tk.Tk):
         if m:
             est = motor_mod.estado_cache_frosty(m.dir_frosty, m.raiz_juego)
             c["existe"] = est["existe"]
-            c["obsoleta"] = est["obsoleta"]
+            c["veredicto"] = est["veredicto"]
+            c["buildid"] = est["buildid"]
             if est["existe"]:
-                fmt = lambda t: datetime.fromtimestamp(t).strftime("%d/%m %H:%M")
-                c["f_cache"] = fmt(est["fecha_cache"])
-                c["f_datos"] = fmt(est["fecha_datos"]) if est["fecha_datos"] else "?"
+                c["f_cache"] = datetime.fromtimestamp(
+                    est["fecha_cache"]).strftime("%d/%m %H:%M")
         return {
             "admin": motor_mod.es_administrador(),
             "juego": m.raiz_juego if m else None,

@@ -194,16 +194,35 @@ repaired afterwards**, that index no longer matches the files on disk, and mods 
 from it reference assets the engine cannot resolve. The game crashes, and it looks like
 the mod's fault.
 
-This tool detects it automatically by comparing the cache's timestamp against the newest
-file in `Data\` and `Patch\`:
+This tool detects it by **content**, not by timestamps. It fingerprints the files that
+define the asset index — every `.toc`, `layout.toc`, `initfs_Win32` and `chunkmanifest`
+under `Data\` — and compares that fingerprint against the one recorded the last time
+Frosty reindexed.
 
 ```
 Frosty Mod Manager:
    Carpeta : E:\FrostyModManager
    Indexada: 16-08-2026 02:10
-   Datos   : 16-08-2026 02:56
-   Estado  : OBSOLETA — reindexa antes de compilar (opcion [9])
+   Build   : 10351341
+   Estado  : al dia (huella de contenido sin cambios)
 ```
+
+**Why not just compare timestamps?** Because Steam re-downloading the *same* build
+rewrites all 31 GB and bumps every `mtime` without changing a single byte. A
+timestamp check calls that stale; it isn't. Verified on exactly that case: after a full
+31.5 GB re-download of build `10351341`, every file hashed identical to before.
+
+Three verdicts, and the third one matters:
+
+| Verdict | Meaning |
+|---|---|
+| `al dia` | Fingerprint unchanged — the cache is valid |
+| `OBSOLETA` | Content genuinely changed — reindex before compiling |
+| `sin verificar` | First run, no prior reference to compare against |
+
+`sin verificar` exists on purpose. Flagging red without evidence is worse than admitting
+the tool doesn't know yet. Only `Data\` is fingerprinted, because the injector never
+writes there — including `Patch\` would make the fingerprint change from our own work.
 
 Fix it with:
 
