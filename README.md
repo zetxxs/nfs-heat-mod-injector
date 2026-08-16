@@ -72,6 +72,60 @@ Get-FileHash NFSHeatModInjector.exe -Algorithm SHA256
 
 The expected hash is published in the release notes.
 
+## Using the app, step by step
+
+*(Guía completa en español: **[LEEME.md](LEEME.md)**)*
+
+Open the exe. It fills in the top panel by itself — you don't type any paths.
+
+### What the status panel tells you
+
+| Row | What it means |
+|---|---|
+| **Juego** | Where your game is. Green = found. Red = press **Cambiar ruta…** and pick the folder |
+| **Frosty** | Where Frosty Mod Manager is. Amber if not found — only matters for the cache check |
+| **Cache** | Whether Frosty's asset index still matches your game. See the three verdicts above |
+| **Estado** | `original (vanilla)` = clean game. `MODS INYECTADOS` = mods are applied right now |
+
+### What each button does
+
+| Button | What happens |
+|---|---|
+| **▶ Inyectar mods y jugar** | Copies Frosty's compiled mod files into the game, then launches through Steam. The one you'll use most |
+| **↺ Restaurar original** | Puts the original files back from the verified backups. Run this before recompiling in Frosty, and before playing online |
+| **Solo inyectar** | Same as the first button but without launching |
+| **Diagnostico** | Prints everything it knows: paths, cache state, mod payload, install integrity. Read-only, safe anytime |
+| **Invalidar cache de Frosty** | Renames Frosty's index so it rebuilds. Only needed when the game actually changed |
+| **Reparar instalacion** | Puts back vanilla files that a broken tool moved out and never returned |
+| **Cambiar ruta…** | Point it at the game folder manually |
+
+### The order that works
+
+```
+1. Restaurar original          ← leaves a clean base and honest backups
+2. Frosty → apply mods → Launch  ← ONLY to compile. Close the game when it opens.
+3. Inyectar mods y jugar
+```
+
+**Step 2 is where everyone trips.** Frosty's Launch compiles `ModData` *and* starts the
+game — but that launch does **not** apply your mods. The game opens fine, so it looks
+like it worked. Let it open, close it, then come back and inject.
+
+And once mods are injected, **launch from Steam or from this app — never from Frosty
+again.** Frosty reinstalls its proxy exe on launch and can undo the injection.
+
+### Before you play with reward mods
+
+Money and REP multiplier mods write to your save, and an overflow can leave your balance
+negative. That damage is in the save file, not in the game files, so restoring won't undo
+it. Copy this first:
+
+```
+Documents\Need for Speed Heat\SaveGame\savegame\1
+```
+
+The game keeps a single save and overwrites it on exit.
+
 ## Quick start
 
 Requires Windows 10/11, Python 3.8+, and Administrator (it self-elevates via UAC).
