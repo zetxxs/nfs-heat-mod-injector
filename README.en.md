@@ -15,6 +15,52 @@ files the game actually reads, with verified backups and a one-command way back.
 
 ---
 
+## Before you start
+
+**This does not replace Frosty — it complements it.** Frosty compiles your mods; this is
+what makes the game actually load them.
+
+```
+Your .fbmod  →  Frosty Mod Manager  →  ModData\Default  →  This tool  →  The game
+                    (compiles)                              (injects)
+```
+
+You need all four:
+
+| Requirement | Notes |
+|---|---|
+| **Need for Speed Heat** | Steam or EA App. Installed and launched at least once |
+| **Frosty Mod Manager** | It is what produces `ModData`. Without it this tool has nothing to inject |
+| **Your `.fbmod` mods** | They go in `<Frosty>\Mods\NeedForSpeedHeat\` |
+| **Windows 10 or 11** | With administrator rights |
+
+### Where to get Frosty
+
+Only from the official source:
+
+- **Official site:** <https://frostytoolsuite.com>
+- **Official repository:** <https://github.com/CadeEvs/FrostyToolsuite> (author: CadeEvs)
+
+> ⚠️ **Watch out for fake sites.** Searching "frosty mod manager download" mostly returns
+> mirrors and lookalike domains (`frostymodmanager.net`, download aggregators, and so on).
+> You are about to install something that rewrites your game files — get it only from the
+> two links above.
+
+Verified working with **Frosty Mod Manager 1.0.6.3**. Frosty also needs the NFS Heat
+profile (`NFSHEATSDK.dll`), which ships with the program itself.
+
+### First time with Frosty
+
+1. Open it and point it at your Need for Speed Heat folder when asked.
+2. Let it build its asset index. This takes several minutes the first time.
+3. Drag your `.fbmod` files into the available mods panel and move them to the applied list.
+4. Press **Launch** so it compiles `ModData`.
+
+That is where this tool takes over. Step 4 starts the game but **does not apply the
+mods** — the trap explained in [Using the app, step by step](#using-the-app-step-by-step).
+
+---
+
 ## Why not just copy the files yourself
 
 Because `ModData\Default` is not a folder of files. It is a **mirror built out of

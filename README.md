@@ -15,6 +15,53 @@ el juego realmente lee, con respaldos verificados y vuelta atrás en un comando.
 
 ---
 
+## Antes de empezar
+
+**Esta herramienta no sustituye a Frosty: lo complementa.** Frosty es quien compila tus
+mods; esto es lo que hace que el juego los cargue.
+
+```
+Tus .fbmod  →  Frosty Mod Manager  →  ModData\Default  →  Esta herramienta  →  El juego
+                    (compila)                                  (inyecta)
+```
+
+Necesitas las cuatro cosas:
+
+| Requisito | Notas |
+|---|---|
+| **Need for Speed Heat** | Steam o EA App. Instalado y arrancado al menos una vez |
+| **Frosty Mod Manager** | Es quien genera `ModData`. Sin él esta herramienta no tiene nada que inyectar |
+| **Tus mods `.fbmod`** | Se ponen en `<Frosty>\Mods\NeedForSpeedHeat\` |
+| **Windows 10 u 11** | Con permisos de administrador |
+
+### De dónde bajar Frosty
+
+Solo desde la fuente oficial:
+
+- **Sitio oficial:** <https://frostytoolsuite.com>
+- **Repositorio oficial:** <https://github.com/CadeEvs/FrostyToolsuite> (autor: CadeEvs)
+
+> ⚠️ **Cuidado con las webs falsas.** Buscar "frosty mod manager download" devuelve sobre
+> todo mirrors y dominios que imitan el nombre (`frostymodmanager.net`, agregadores de
+> descargas, etc.). Vas a instalar un programa que modifica tus juegos: bájalo solo de
+> los dos enlaces de arriba.
+
+Verificado funcionando con **Frosty Mod Manager 1.0.6.3**. Frosty necesita además el
+perfil de NFS Heat (`NFSHEATSDK.dll`), que viene con el propio programa.
+
+### Primera vez con Frosty
+
+1. Ábrelo y señálale la carpeta de Need for Speed Heat cuando la pida.
+2. Deja que construya su índice de assets. Tarda varios minutos la primera vez.
+3. Arrastra tus `.fbmod` al panel de mods disponibles y pásalos a la lista de aplicados.
+4. Pulsa **Launch** para que compile `ModData`.
+
+A partir de ahí ya entra esta herramienta. El paso 4 arranca el juego pero **no aplica
+los mods** — es la trampa que explica la sección
+[Cómo usarlo, paso a paso](#cómo-usarlo-paso-a-paso).
+
+---
+
 ## Por qué no vale con copiar los archivos a mano
 
 Porque `ModData\Default` **no es una carpeta de archivos**. Es un espejo hecho de
